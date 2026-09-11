@@ -2,6 +2,9 @@ PROJECT = fuse-archive
 PKG_CONFIG ?= pkg-config
 OS := $(shell uname -s)
 
+# C++ standard version (override with CXXSTD=20 for older compilers)
+CXXSTD ?= 23
+
 FUSE_MAJOR_VERSION ?= 3
 
 ifeq ($(FUSE_MAJOR_VERSION), 3)
@@ -19,7 +22,7 @@ UNIT_TEST_DEPS = gtest gtest_main
 # path). Wire the Homebrew path into PKG_CONFIG_PATH so every pkg-config call
 # in this Makefile resolves the correct version regardless of shell environment.
 ifeq ($(OS),Darwin)
-  COMMON_CXXFLAGS += -std=gnu++23
+  COMMON_CXXFLAGS += -std=gnu++$(CXXSTD)
   PREFIX ?= /usr/local
   BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
   ifneq ($(BREW_PREFIX),)
@@ -31,7 +34,7 @@ ifeq ($(OS),Darwin)
     FUSE_CXXFLAGS += -DFUSE_DARWIN_ENABLE_EXTENSIONS=0
   endif
 else
-  COMMON_CXXFLAGS += -std=c++23
+  COMMON_CXXFLAGS += -std=c++$(CXXSTD)
 endif
 
 # 16-byte atomics (std::atomic<timespec>, used for Node::atime) are
