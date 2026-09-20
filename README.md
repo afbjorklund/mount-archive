@@ -3,7 +3,7 @@ title: fuse-archive
 section: 1
 header: User Manual
 footer: fuse-archive 1.25
-date: August 2026
+date: September 2026
 ---
 
 # NAME

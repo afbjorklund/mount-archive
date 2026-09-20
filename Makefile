@@ -180,7 +180,7 @@ release:
 
 $(MAN): README.md
 	pandoc $< -s -t man | \
-	sed -e 's/^\.IP \\\[bu\]/.PD 0\n.IP \\\[bu\]/g' \
+	sed -e 's/^\.IP \\(bu/.PD 0\n.IP \\(bu/g' \
 	    -e 's/^\.SH/.PD\n.SH/g' \
 	    -e 's/^\.SS/.PD\n.SS/g' \
 	    -e 's/^\.PP/.PD\n.PP/g' \
