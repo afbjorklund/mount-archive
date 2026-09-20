@@ -281,12 +281,15 @@ void SetSafePath() {
 
       // Recognized safe system locations.
       static const std::unordered_set<std::string_view> safe_dirs = {
-          "/usr/bin",          "/bin",           "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          "/usr/local/bin",
 #ifdef __APPLE__
-          "/opt/homebrew/bin", "/opt/local/bin",
+          "/opt/homebrew/bin",
+          "/opt/local/bin",
 #endif
 #ifdef __FreeBSD__
-// libfuse needs mount_fusefs in the PATH.
+          // libfuse needs mount_fusefs in the PATH.
           "/sbin",
 #endif
       };
