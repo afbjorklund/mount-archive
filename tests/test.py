@@ -79,8 +79,8 @@ has_memcache = on_linux
 if not has_memcache:
     logging.info('Will skip tests relying on memcache')
 
-has_xattrs = not on_mac
-if not has_memcache:
+has_xattrs = not on_mac and not on_freebsd
+if not has_xattrs:
     logging.info('Will skip tests for xattrs')
 
 has_holes = not on_mac and fuse_major_version >= 3
@@ -303,8 +303,9 @@ if not is_fast and not has_lrzip:
 
 def Unmount(mount_point):
     # Linux: -l (lazy) detaches immediately even if mount is busy.
-    # macOS: -l is unsupported; -f (force) is the closest equivalent.
-    if on_mac:
+    # macOS and FreeBSD: -l is unsupported; -f (force) is the closest
+    # equivalent.
+    if on_mac or on_freebsd:
         subprocess.run(['umount', '-f', mount_point], check=True)
     else:
         subprocess.run(['umount', '-l', mount_point], check=True)
@@ -1339,9 +1340,7 @@ def TestHardlinks(options=[]):
 # Tests sparse file seeking logic.
 def TestSeek(options=[]):
     if not has_gzip and not has_zlib: return
-    if not has_holes:
-        logging.info('Skipping TestSeek')
-        return
+    if not has_holes: return
 
     zip_name = 'seek.tar.gz'
     s = f'Test {zip_name!r}'
@@ -2614,21 +2613,25 @@ def TestAutoMountPoint():
                 LogError(f"Automatic mount point '--help' was not removed")
 
         # 4. Mount point creation failure (e.g. read-only directory)
-        readonly_dir = os.path.join(tmp_dir, 'readonly')
-        os.mkdir(readonly_dir)
-        os.chmod(readonly_dir, 0o555)  # Read and execute, but no write
-        try:
-            command_fail = [mount_program, zip_path]
-            res = subprocess.run(command_fail,
-                                 capture_output=True,
-                                 cwd=readonly_dir)
-            if res.returncode != 10:
-                LogError(
-                    f"Expected exit code 10 for mount point creation failure, got {res.returncode}"
-                )
-        finally:
-            os.chmod(readonly_dir, 0o777)
-            os.rmdir(readonly_dir)
+        # Skipped when running as root: root bypasses the directory
+        # permission bits, so fuse-archive would succeed instead of
+        # failing as expected.
+        if os.getuid() != 0:
+            readonly_dir = os.path.join(tmp_dir, 'readonly')
+            os.mkdir(readonly_dir)
+            os.chmod(readonly_dir, 0o555)  # Read and execute, but no write
+            try:
+                command_fail = [mount_program, zip_path]
+                res = subprocess.run(command_fail,
+                                     capture_output=True,
+                                     cwd=readonly_dir)
+                if res.returncode != 10:
+                    LogError(
+                        f"Expected exit code 10 for mount point creation failure, got {res.returncode}"
+                    )
+            finally:
+                os.chmod(readonly_dir, 0o777)
+                os.rmdir(readonly_dir)
 
         # 5. Mounting in non-existent parent directory
         nonexistent_parent = os.path.join(tmp_dir, 'no/such/dir/mnt')
