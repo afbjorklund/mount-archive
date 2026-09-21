@@ -32,9 +32,14 @@ ifeq ($(OS),Darwin)
   endif
 else
   COMMON_CXXFLAGS += -std=c++23
-  # 16-byte atomics (std::atomic<timespec>, used for Node::atime) are
-  # implemented via libatomic's runtime fallback on platforms without a
-  # lock-free 16-byte compare-and-swap.
+endif
+
+# 16-byte atomics (std::atomic<timespec>, used for Node::atime) are
+# implemented via libatomic's runtime fallback on platforms without a
+# lock-free 16-byte compare-and-swap. Only glibc/Linux splits this out into
+# a separate library; FreeBSD's compiler-rt provides the fallback directly,
+# and this isn't linked on Darwin either.
+ifeq ($(OS),Linux)
   PKG_LDFLAGS += -latomic
 endif
 
