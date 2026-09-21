@@ -236,8 +236,12 @@ general options:
     -o maxfilters=N        max number of filters (default 1)
     -o precache            pre-emptive caching of uncompressed data (default)
     -o lazycache           incremental caching of uncompressed data
-    -o nocache             no caching of uncompressed data
-    -o memcache            caching in memory
+    -o nocache             no caching of uncompressed data)"
+#if defined(__linux__)
+         R"(
+    -o memcache            caching in memory)"
+#endif
+         R"(
     -o nomerge             don't merge multiple archives in the same directory
     -o notrim              don't trim the base of the tree
     -o nodirs              no directories
