@@ -38,6 +38,11 @@ If no mount point is specified, **fuse-archive** uses the name of the archive
 directory. If that directory already exists, it will try to create one with a
 numeric suffix (e.g., `archive (1)`).
 
+**fuse-archive** is continuously tested on Linux and FreeBSD, including
+mounting real archives, and verified to build (but not to mount) on macOS —
+macFUSE's kernel extension needs interactive consent that automated testing
+can't provide.
+
 # OPTIONS
 
 **-\-help** or **-h**
