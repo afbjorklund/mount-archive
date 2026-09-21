@@ -137,14 +137,20 @@ Stat Node::GetStat() const {
 
   const timespec atime = t->atime.load(std::memory_order_relaxed);
 
-#if __APPLE__
+#ifdef __APPLE__
   z.st_atimespec = atime;
   z.st_mtimespec = mtime;
   z.st_ctimespec = ctime;
+  z.st_birthtimespec = btime;
 #else
   z.st_atim = atime;
   z.st_mtim = mtime;
   z.st_ctim = ctime;
+  // Linux's struct stat has no birthtime field at all (unlike Apple's and
+  // FreeBSD's): that's what the statx FUSE operation is for.
+#ifdef __FreeBSD__
+  z.st_birthtim = btime;
+#endif
 #endif
 
   return z;

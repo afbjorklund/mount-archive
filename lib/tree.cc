@@ -93,16 +93,17 @@ Segments GetSegments(std::string_view const path) {
   return segments;
 }
 
-// Sets |node|'s mtime, atime and ctime from the given archive |entry|.
+// Sets |node|'s mtime, atime, ctime and btime from the given archive
+// |entry|.
 //
 // If the entry doesn't carry an mtime, |fallback_mtime| is used instead
 // (normally the archive file's own mtime). A zero mtime coming from the
 // entry itself is kept as is, since some archivers set it on purpose (e.g.
 // for reproducible builds).
 //
-// A missing or zero atime or ctime is replaced by the node's own mtime.
-// Unlike mtime, these are essentially never meaningfully set to the Unix
-// epoch on purpose: it's just a sign that the archive format or writer
+// A missing or zero atime, ctime or btime is replaced by the node's own
+// mtime. Unlike mtime, these are essentially never meaningfully set to the
+// Unix epoch on purpose: it's just a sign that the archive format or writer
 // doesn't track them.
 void SetTimestamps(Node* const node,
                    Entry* const entry,
@@ -123,6 +124,12 @@ void SetTimestamps(Node* const node,
           ? timespec{.tv_sec = archive_entry_ctime(entry),
                      .tv_nsec = archive_entry_ctime_nsec(entry)}
           : node->mtime;
+
+  node->btime = archive_entry_birthtime_is_set(entry) &&
+                        archive_entry_birthtime(entry) != 0
+                    ? timespec{.tv_sec = archive_entry_birthtime(entry),
+                               .tv_nsec = archive_entry_birthtime_nsec(entry)}
+                    : node->mtime;
 }
 
 }  // namespace
@@ -697,7 +704,7 @@ void Tree::Load(std::span<const std::string> const archives) {
         archive.size = z.st_size;
         LOG(DEBUG) << "File size of " << Path(archive.path) << " is "
                    << archive.size << " bytes";
-#if __APPLE__
+#ifdef __APPLE__
         archive.mtime = z.st_mtimespec;
 #else
         archive.mtime = z.st_mtim;

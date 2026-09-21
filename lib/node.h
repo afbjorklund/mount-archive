@@ -66,6 +66,11 @@ struct Node {
 
   timespec ctime;
 
+  // Time this entry was created, as recorded in the archive. Only exposed via
+  // struct stat's st_birthtim(espec) on Apple and FreeBSD; Linux's struct stat
+  // has no such field (see the statx FUSE operation instead).
+  timespec btime;
+
   // --- 8-byte members (Fixed size) ---
 
   // Index of the entry represented by this node in the archive, or 0 if it is

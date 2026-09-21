@@ -17,6 +17,18 @@
 
 #include <fuse.h>
 
+// fuse_operations.statx was only added in libfuse 3.18; older 3.x releases
+// (e.g. the 3.14 shipped by Ubuntu 24.04) don't declare that struct member at
+// all. FUSE_USE_VERSION only requests an API compatibility level, not the
+// actual installed library version; FUSE_MAJOR_VERSION/FUSE_MINOR_VERSION
+// (from libfuse's own libfuse_config.h, pulled in via <fuse.h> above) report
+// the real one.
+#if defined(__linux__) &&      \
+    (FUSE_MAJOR_VERSION > 3 || \
+     (FUSE_MAJOR_VERSION == 3 && FUSE_MINOR_VERSION >= 18))
+#define FUSE_HAS_STATX 1
+#endif
+
 #include "reader.h"
 
 namespace fuse_archive {

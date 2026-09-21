@@ -81,6 +81,6 @@
 - [x] Keep track of access time (atime) of each file.
 - [x] Add a `-o noatime` option.
 - [x] Adjust man page generation for compact lists.
-- [ ] Handle btime timestamps.
+- [x] Handle btime timestamps.
 - [ ] Add a `USE_LIBZIP` build flag.
 - [ ] Handle ZIP archives with `libzip` instead of `libarchive` if `USE_LIBZIP` is enabled.

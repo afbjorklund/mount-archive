@@ -278,6 +278,40 @@ TEST_F(FUSETest, GetAttrByFi) {
   ops_.release("/romeo.txt", &fi);
 }
 
+#ifdef FUSE_HAS_STATX
+TEST_F(FUSETest, StatxByPath) {
+  tree_.Load(std::vector<std::string>{"tests/data/archive.tar"});
+  struct statx stx;
+  EXPECT_EQ(ops_.statx("/romeo.txt", 0, STATX_BASIC_STATS | STATX_BTIME, &stx,
+                       nullptr),
+            0);
+  EXPECT_GT(stx.stx_size, 0u);
+  EXPECT_TRUE(stx.stx_mask & STATX_BTIME);
+  // No birthtime is set in this archive, so it should fall back to mtime.
+  EXPECT_EQ(stx.stx_btime.tv_sec, stx.stx_mtime.tv_sec);
+  EXPECT_GT(stx.stx_btime.tv_sec, 0);
+
+  EXPECT_EQ(ops_.statx("/nonexistent", 0, STATX_BASIC_STATS, &stx, nullptr),
+            -ENOENT);
+}
+
+TEST_F(FUSETest, StatxByFi) {
+  tree_.Load(std::vector<std::string>{"tests/data/archive.tar"});
+  fuse_file_info fi;
+  std::memset(&fi, 0, sizeof(fi));
+  EXPECT_EQ(ops_.open("/romeo.txt", &fi), 0);
+  EXPECT_NE(fi.fh, 0);
+
+  struct statx stx;
+  EXPECT_EQ(ops_.statx(nullptr, 0, STATX_BASIC_STATS | STATX_BTIME, &stx, &fi),
+            0);
+  EXPECT_GT(stx.stx_size, 0u);
+  EXPECT_EQ(stx.stx_btime.tv_sec, stx.stx_mtime.tv_sec);
+
+  ops_.release("/romeo.txt", &fi);
+}
+#endif
+
 TEST_F(FUSETest, Xattr) {
   tree_.Load(std::vector<std::string>{"tests/data/many-xattrs.tar"});
   char buf[1024];
