@@ -27,23 +27,27 @@ FUSE
 \ file system.
 .PD
 .PP
-It is similar to \c
-.UR https://github.com/google/mount-zip
-\f[B]mount\-zip\f[R]
+It is similar to programs like \c
+.UR https://git.sr.ht/~nabijaczleweli/archivemount-ng
+\f[B]archivemount\-ng\f[R]
 .UE \c
-\ and \c
+, \c
 .UR https://bitbucket.org/agalanin/fuse-zip
 \f[B]fuse\-zip\f[R]
 .UE \c
-\ but supports a larger range of archive or compressed file formats.
-.PD
-.PP
-It is similar to \c
-.UR https://github.com/cybernoid/archivemount
-\f[B]archivemount\f[R]
+, \c
+.UR https://github.com/google/mount-zip
+\f[B]mount\-zip\f[R]
 .UE \c
-\ but can be much faster (see the Performance section below), although
-it can only mount read\-only, not read\-write.
+, \c
+.UR https://hasse69.github.io/rar2fs
+\f[B]rar2fs\f[R]
+.UE \c
+\ and \c
+.UR https://github.com/mxmlnkn/ratarmount
+\f[B]ratarmount\f[R]
+.UE \c
+\ (see the Comparison section below).
 .PD
 .PP
 \f[B]fuse\-archive\f[R] automatically creates the target mount point if
@@ -772,66 +776,36 @@ use the \f[CR]\-o redact\f[R] option.
 When enabled, file paths in log messages will be replaced with
 \f[CR](redacted)\f[R].
 .PD
-.SH PERFORMANCE
-Create a single \f[CR].tar.gz\f[R] file that is 256 MiB decompressed and
-255 KiB compressed (the file just contains repeated 0x00 NUL bytes):
-.IP
-.EX
-$ truncate \-\-size=256M zeroes
-$ tar cfz zeroes\-256mib.tar.gz zeroes
-.EE
-.PD
-.PP
-Here are \f[B]fuse\-archive\f[R]\(cqs timings:
-.IP
-.EX
-$ time fuse\-archive zeroes\-256mib.tar.gz mnt
-real    0m0.443s
-
-$ dd if=mnt/zeroes of=/dev/null status=progress
-268435456 bytes (268 MB, 256 MiB) copied, 0.836048 s, 321 MB/s
-
-$ umount mnt
-.EE
-.PD
-.PP
-For comparison, here are \f[B]archivemount\f[R]\(cqs timings:
-.IP
-.EX
-$ time archivemount zeroes\-256mib.tar.gz mnt
-real    0m0.581s
-
-$ dd if=mnt/zeroes of=/dev/null status=progress
-268435456 bytes (268 MB, 256 MiB) copied, 570.146 s, 471 kB/s
-
-$ umount mnt
-.EE
-.PD
-.PP
-In this case, \f[B]fuse\-archive\f[R] takes about the same time to load
-the archive as \f[B]archivemount\f[R], but it is \f[B]\(ti700×
-faster\f[R] (0.83s vs.\ 570s) to copy out the decompressed contents.
-This is because \f[B]fuse\-archive\f[R] fully caches the archive and
-does not use \f[B]archivemount\f[R]\(cqs \c
-.UR https://github.com/cybernoid/archivemount/issues/21
-quadratic complexity algorithm
-.UE \c
-\&.
-.PD
 .SH COMPARISON
+\f[B]fa\f[R] = \f[B]fuse\-archive\f[R] · \f[B]mz\f[R] = \c
+.UR https://github.com/google/mount-zip
+\f[B]mount\-zip\f[R]
+.UE \c
+\ · \f[B]am\f[R] = \c
+.UR https://git.sr.ht/~nabijaczleweli/archivemount-ng
+\f[B]archivemount\-ng\f[R]
+.UE \c
+\ · \f[B]rm\f[R] = \c
+.UR https://github.com/mxmlnkn/ratarmount
+\f[B]ratarmount\f[R]
+.UE \c
 .PD
 .PP
 .TS
 tab(@);
-lw(25.0n) cw(16.0n) cw(13.0n) cw(16.0n).
+lw(25.2n) cw(12.6n) cw(6.9n) cw(6.9n) cw(6.9n) cw(11.5n).
 T{
 Feature
 T}@T{
-\f[B]fuse\-archive\f[R]
+\f[B]fa\f[R]
 T}@T{
-\f[B]mount\-zip\f[R]
+\f[B]mz\f[R]
 T}@T{
-\f[B]archivemount\f[R]
+\f[B]am\f[R]
+T}@T{
+\f[B]rm\f[R]
+T}@T{
+\f[B]rar2fs\f[R]
 T}
 _
 T{
@@ -842,6 +816,10 @@ T}@T{
 ❌
 T}@T{
 ✅
+T}@T{
+✅
+T}@T{
+❌
 T}
 T{
 Format Support
@@ -851,6 +829,10 @@ T}@T{
 ZIP
 T}@T{
 Wide
+T}@T{
+Wide
+T}@T{
+RAR
 T}
 T{
 GPG Encryption
@@ -860,33 +842,75 @@ T}@T{
 ❌
 T}@T{
 ❌
-T}
-T{
-Native ZIP Encryption
-T}@T{
-✅
-T}@T{
-✅
-T}@T{
-✅
-T}
-T{
-Native 7Z/RAR Encryption
-T}@T{
-❌
 T}@T{
 ❌
 T}@T{
 ❌
 T}
 T{
-Lazy Decompression
+ZIP Encryption
+T}@T{
+✅
+T}@T{
+✅
 T}@T{
 ✅
 T}@T{
 ✅
 T}@T{
 ❌
+T}
+T{
+7Z Encryption
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+✅
+T}@T{
+❌
+T}
+T{
+RAR Encryption
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+✅
+T}
+T{
+Lazy Caching
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
+T}
+T{
+Lazy Extraction
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+✅
 T}
 T{
 Default Caching
@@ -896,29 +920,45 @@ T}@T{
 Lazy
 T}@T{
 N/A
+T}@T{
+N/A
+T}@T{
+N/A
 T}
 T{
-Memory Caching
+Cache in Memory
 T}@T{
 ✅
 T}@T{
 ✅
 T}@T{
 ❌
+T}@T{
+❌
+T}@T{
+❌
 T}
 T{
-Temp File Caching
+Cache in Temp File
 T}@T{
 ✅
 T}@T{
 ✅
 T}@T{
 ❌
+T}@T{
+❌
+T}@T{
+❌
 T}
 T{
-Handles Huge Files
+External Index Caching
 T}@T{
-✅
+❌
+T}@T{
+❌
+T}@T{
+❌
 T}@T{
 ✅
 T}@T{
@@ -932,24 +972,23 @@ T}@T{
 ❌
 T}@T{
 ❌
-T}
-T{
-Linear Complexity
 T}@T{
-✅
-T}@T{
-✅
+❌
 T}@T{
 ❌
 T}
 T{
-Precision Timestamps
+Extended Attributes
 T}@T{
 ✅
 T}@T{
-✅
+❌
 T}@T{
-✅
+❌
+T}@T{
+❌
+T}@T{
+❌
 T}
 T{
 Several Archives
@@ -959,6 +998,10 @@ T}@T{
 ✅
 T}@T{
 ❌
+T}@T{
+✅
+T}@T{
+✅
 T}
 T{
 Automatic Mount Point
@@ -968,11 +1011,45 @@ T}@T{
 ✅
 T}@T{
 ❌
+T}@T{
+✅
+T}@T{
+❌
 T}
 T{
 FUSE 3 Support
 T}@T{
 ✅
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+✅
+T}@T{
+❌
+T}
+T{
+Recursive Mounting
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+✅
+T}@T{
+❌
+T}
+T{
+Remote Mounting
+T}@T{
+❌
+T}@T{
+❌
+T}@T{
+❌
 T}@T{
 ✅
 T}@T{
@@ -1037,4 +1114,4 @@ Cannot read and extract the archive.
 .PD
 .SH SEE ALSO
 archivemount(1), mount\-zip(1), fuse\-zip(1), fusermount(1), fuse(8),
-umount(8)
+rar2fs(1), umount(8)
