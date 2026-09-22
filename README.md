@@ -2,8 +2,8 @@
 title: fuse-archive
 section: 1
 header: User Manual
-footer: fuse-archive 1.24
-date: August 2026
+footer: fuse-archive 1.25
+date: September 2026
 ---
 
 # NAME
@@ -21,13 +21,13 @@ date: August 2026
 `foo.tar`, `foo.tar.gz`, `foo.xz`, or `foo.zip`) as a read-only
 [FUSE](https://en.wikipedia.org/wiki/Filesystem_in_Userspace) file system.
 
-It is similar to [**mount-zip**](https://github.com/google/mount-zip) and
-[**fuse-zip**](https://bitbucket.org/agalanin/fuse-zip) but supports a larger
-range of archive or compressed file formats.
-
-It is similar to [**archivemount**](https://github.com/cybernoid/archivemount)
-but can be much faster (see the Performance section below), although it can only
-mount read-only, not read-write.
+It is similar to programs like
+[**archivemount-ng**](https://git.sr.ht/~nabijaczleweli/archivemount-ng),
+[**fuse-zip**](https://bitbucket.org/agalanin/fuse-zip),
+[**mount-zip**](https://github.com/google/mount-zip),
+[**rar2fs**](https://hasse69.github.io/rar2fs) and
+[**ratarmount**](https://github.com/mxmlnkn/ratarmount) (see the Comparison
+section below).
 
 **fuse-archive** automatically creates the target mount point if needed and
 automatically removes it when the file system is unmounted. If the mount point
@@ -37,6 +37,11 @@ If no mount point is specified, **fuse-archive** uses the name of the archive
 (without its filename extension) as a mount point in the current working
 directory. If that directory already exists, it will try to create one with a
 numeric suffix (e.g., `archive (1)`).
+
+**fuse-archive** is continuously tested on Linux and FreeBSD, including
+mounting real archives, and verified to build (but not to mount) on macOS —
+macFUSE's kernel extension needs interactive consent that automated testing
+can't provide.
 
 # OPTIONS
 
@@ -100,6 +105,10 @@ numeric suffix (e.g., `archive (1)`).
 
 **-o noxattrs**
 :   Do not report extended attributes.
+
+**-o noatime**
+:   Do not update the access time (atime) of files and directories when they
+    are read.
 
 **-o nobidding**
 :   Do not use libarchive's format bidding system to detect the archive format.
@@ -540,66 +549,34 @@ To prevent sensitive file names from being recorded in the system logs, use the
 `-o redact` option. When enabled, file paths in log messages will be replaced
 with `(redacted)`.
 
-# PERFORMANCE
-
-Create a single `.tar.gz` file that is 256 MiB decompressed and 255 KiB
-compressed (the file just contains repeated 0x00 NUL bytes):
-
-```
-$ truncate --size=256M zeroes
-$ tar cfz zeroes-256mib.tar.gz zeroes
-```
-
-Here are **fuse-archive**'s timings:
-
-```
-$ time fuse-archive zeroes-256mib.tar.gz mnt
-real    0m0.443s
-
-$ dd if=mnt/zeroes of=/dev/null status=progress
-268435456 bytes (268 MB, 256 MiB) copied, 0.836048 s, 321 MB/s
-
-$ umount mnt
-```
-
-For comparison, here are **archivemount**'s timings:
-
-```
-$ time archivemount zeroes-256mib.tar.gz mnt
-real    0m0.581s
-
-$ dd if=mnt/zeroes of=/dev/null status=progress
-268435456 bytes (268 MB, 256 MiB) copied, 570.146 s, 471 kB/s
-
-$ umount mnt
-```
-
-In this case, **fuse-archive** takes about the same time to load the archive as
-**archivemount**, but it is **~700× faster** (0.83s vs. 570s) to copy out the
-decompressed contents. This is because **fuse-archive** fully caches the archive
-and does not use **archivemount**'s
-[quadratic complexity algorithm](https://github.com/cybernoid/archivemount/issues/21).
-
 # COMPARISON
 
-Feature                   | **fuse-archive** | **mount-zip** | **archivemount**
-:------------------------ | :--------------: | :-----------: | :--------------:
-Read-Write Support        | ❌                | ❌             | ✅
-Format Support            | Wide             | ZIP           | Wide
-GPG Encryption            | ✅                | ❌             | ❌
-Native ZIP Encryption     | ✅                | ✅             | ✅
-Native 7Z/RAR Encryption  | ❌                | ❌             | ❌
-Lazy Decompression        | ✅                | ✅             | ❌
-Default Caching           | Pre-emptive      | Lazy          | N/A
-Memory Caching            | ✅                | ✅             | ❌
-Temp File Caching         | ✅                | ✅             | ❌
-Handles Huge Files        | ✅                | ✅             | ❌
-Sparse File Detection     | ✅                | ❌             | ❌
-Linear Complexity         | ✅                | ✅             | ❌
-Precision Timestamps      | ✅                | ✅             | ✅
-Several Archives          | ✅                | ✅             | ❌
-Automatic Mount Point     | ✅                | ✅             | ❌
-FUSE 3 Support            | ✅                | ✅             | ❌
+**fa** = **fuse-archive** · **mz** =
+[**mount-zip**](https://github.com/google/mount-zip) · **am** =
+[**archivemount-ng**](https://git.sr.ht/~nabijaczleweli/archivemount-ng) ·
+**rm** = [**ratarmount**](https://github.com/mxmlnkn/ratarmount)
+
+Feature                |   **fa**    | **mz** | **am** | **rm** | **rar2fs**
+:--------------------- | :---------: | :----: | :----: | :----: | :--------:
+Read-Write Support     |     ❌      |   ❌   |   ✅   |   ✅   |     ❌
+Format Support         |    Wide     |  ZIP   |  Wide  |  Wide  |    RAR
+GPG Encryption         |     ✅      |   ❌   |   ❌   |   ❌   |     ❌
+ZIP Encryption         |     ✅      |   ✅   |   ✅   |   ✅   |     ❌
+7Z Encryption          |     ❌      |   ❌   |   ❌   |   ✅   |     ❌
+RAR Encryption         |     ❌      |   ❌   |   ❌   |   ❌   |     ✅
+Lazy Caching           |     ✅      |   ✅   |   ❌   |   ❌   |     ❌
+Lazy Extraction        |     ✅      |   ✅   |   ✅   |   ✅   |     ✅
+Default Caching        | Pre-emptive |  Lazy  |  N/A   |  N/A   |    N/A
+Cache in Memory        |     ✅      |   ✅   |   ❌   |   ❌   |     ❌
+Cache in Temp File     |     ✅      |   ✅   |   ❌   |   ❌   |     ❌
+External Index Caching |     ❌      |   ❌   |   ❌   |   ✅   |     ❌
+Sparse File Detection  |     ✅      |   ❌   |   ❌   |   ❌   |     ❌
+Extended Attributes    |     ✅      |   ❌   |   ❌   |   ❌   |     ❌
+Several Archives       |     ✅      |   ✅   |   ❌   |   ✅   |     ✅
+Automatic Mount Point  |     ✅      |   ✅   |   ❌   |   ✅   |     ❌
+FUSE 3 Support         |     ✅      |   ✅   |   ✅   |   ✅   |     ❌
+Recursive Mounting     |     ❌      |   ❌   |   ❌   |   ✅   |     ❌
+Remote Mounting        |     ❌      |   ❌   |   ❌   |   ✅   |     ❌
 
 # RETURN VALUE
 
@@ -645,4 +622,5 @@ FUSE 3 Support            | ✅                | ✅             | ❌
 
 # SEE ALSO
 
-archivemount(1), mount-zip(1), fuse-zip(1), fusermount(1), fuse(8), umount(8)
+archivemount(1), mount-zip(1), fuse-zip(1), fusermount(1), fuse(8), rar2fs(1),
+umount(8)

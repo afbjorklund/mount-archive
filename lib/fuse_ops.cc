@@ -22,6 +22,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifdef FUSE_HAS_STATX
+#include <sys/sysmacros.h>
+#endif
+
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
@@ -30,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -98,6 +103,59 @@ int GetAttr(const char* const path,
   *z = n->GetStat();
   return 0;
 }
+
+#ifdef FUSE_HAS_STATX
+// Converts a timespec to a statx_timestamp.
+statx_timestamp ToStatxTimestamp(const timespec& t) {
+  return {.tv_sec = t.tv_sec, .tv_nsec = static_cast<uint32_t>(t.tv_nsec)};
+}
+
+// Gets extended file attributes, including the entry's real birth time
+// (unlike GetAttr's struct stat, which has no field for it on Linux).
+int Statx(const char* const path,
+          int,
+          int,
+          struct statx* const stxbuf,
+          fuse_file_info* const fi) {
+  const Node* n;
+
+  if (fi) {
+    FileHandle* const h = reinterpret_cast<FileHandle*>(fi->fh);
+    assert(h);
+    n = h->node;
+    assert(n);
+  } else {
+    assert(path);
+    n = FindNode(path);
+    if (!n) {
+      LOG(DEBUG) << "Cannot stat " << Path(path) << ": No such item";
+      return -ENOENT;
+    }
+  }
+
+  assert(n);
+  assert(stxbuf);
+  const Stat z = n->GetStat();
+
+  *stxbuf = {};
+  stxbuf->stx_mask = STATX_BASIC_STATS | STATX_BTIME;
+  stxbuf->stx_blksize = z.st_blksize;
+  stxbuf->stx_nlink = z.st_nlink;
+  stxbuf->stx_uid = z.st_uid;
+  stxbuf->stx_gid = z.st_gid;
+  stxbuf->stx_mode = z.st_mode;
+  stxbuf->stx_ino = z.st_ino;
+  stxbuf->stx_size = z.st_size;
+  stxbuf->stx_blocks = z.st_blocks;
+  stxbuf->stx_atime = ToStatxTimestamp(z.st_atim);
+  stxbuf->stx_mtime = ToStatxTimestamp(z.st_mtim);
+  stxbuf->stx_ctime = ToStatxTimestamp(z.st_ctim);
+  stxbuf->stx_btime = ToStatxTimestamp(n->btime);
+  stxbuf->stx_rdev_major = major(z.st_rdev);
+  stxbuf->stx_rdev_minor = minor(z.st_rdev);
+  return 0;
+}
+#endif
 
 // Gets extended attributes.
 int GetXattr(const char* const path,
@@ -326,6 +384,12 @@ int Read(const char*,
   Node* const t = node->GetTarget();
   assert(t);
 
+  if (GetTree().GetOptions().atime) {
+    timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    t->atime.store(now, std::memory_order_relaxed);
+  }
+
   i64 const size = t->size;
   assert(size >= 0);
 
@@ -462,7 +526,7 @@ int Release(const char*, fuse_file_info* const fi) {
 int OpenDir(const char* const path, fuse_file_info* const fi) {
   assert(path);
 
-  const Node* const n = FindNode(path);
+  Node* const n = FindNode(path);
   if (!n) {
     LOG(ERROR) << "Cannot open " << Path(path) << ": No such item";
     return -ENOENT;
@@ -498,9 +562,15 @@ int ReadDir(const char*,
   assert(filler);
   assert(fi);
 
-  const Node* const n = reinterpret_cast<const Node*>(fi->fh);
+  Node* const n = reinterpret_cast<Node*>(fi->fh);
   assert(n);
   assert(n->IsDir());
+
+  if (GetTree().GetOptions().atime) {
+    timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    n->atime.store(now, std::memory_order_relaxed);
+  }
 
 #if FUSE_USE_VERSION >= 30
   const bool plus = (flags & FUSE_READDIR_PLUS) != 0;
@@ -616,6 +686,9 @@ fuse_operations GetFuseOperations() {
 #if FUSE_USE_VERSION >= 30
       .init = Init,
       .lseek = Seek,
+#ifdef FUSE_HAS_STATX
+      .statx = Statx,
+#endif
 #else
       .flag_nullpath_ok = true,
       .flag_nopath = true,

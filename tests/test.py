@@ -68,18 +68,40 @@ def GetFuseMajorVersion():
 fuse_major_version = GetFuseMajorVersion()
 logging.info(f'FUSE major version: {fuse_major_version}')
 
+
+def GetLibArchiveVersion():
+    for line in sr.stdout.split('\n'):
+        if line.startswith('libarchive '):
+            version_str = line.split()[1]
+            version = []
+            for part in version_str.split('.'):
+                # Strip any non-digit suffix (e.g. the "dev" in "3.9.0dev").
+                digits = ''
+                for c in part:
+                    if not c.isdigit():
+                        break
+                    digits += c
+                version.append(int(digits) if digits else 0)
+            return version
+    return [0, 0, 0]
+
+
+lib_archive_version = GetLibArchiveVersion()
+logging.info(f'libarchive version: {lib_archive_version}')
+
 on_mac = sys.platform.startswith('darwin')
 on_linux = sys.platform.startswith('linux')
+on_freebsd = sys.platform.startswith('freebsd')
 
 # On macOS, using the default TMPDIR causes Finder to use CPU excessively.
 tmp_dir_base = '/tmp' if on_mac else None
 
-has_memcache = not on_mac
+has_memcache = on_linux
 if not has_memcache:
     logging.info('Will skip tests relying on memcache')
 
-has_xattrs = not on_mac
-if not has_memcache:
+has_xattrs = not on_mac and not on_freebsd
+if not has_xattrs:
     logging.info('Will skip tests for xattrs')
 
 has_holes = not on_mac and fuse_major_version >= 3
@@ -247,7 +269,7 @@ def CanRun(args):
         subprocess.run(args, capture_output=True, check=True)
         logging.debug(f'Can run {args!r}')
         return True
-    except FileNotFoundError as e:
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
         logging.debug(f'Cannot run {args!r}: {e}')
         logging.info(f'Will skip tests relying on {args[0]}')
         return False
@@ -257,13 +279,9 @@ has_base64 = CanRun(['base64', '--version'])
 has_brotli = CanRun(['brotli', '--version'])
 has_bzip2 = CanRun(['bzip2', '--help'])
 
-# BSD compress (macOS) is always present but does not support -V, --help, or
-# -h. On Linux, ncompress may or may not be installed and does support -V.
-has_compress = on_mac or CanRun(['compress', '-V'])
-
-# On macOS, even if the `gpg` program is present, libarchive can't  reach
-# gpg-agent's FD / socket.
-has_gpg = not on_mac and CanRun(['gpg', '--version'])
+# BSD compress (FreeBSD, macOS) is always present but does not support -V, --help,
+# or -h. On Linux, ncompress may or may not be installed and does support -V.
+has_compress = on_freebsd or on_mac or CanRun(['compress', '-V'])
 
 has_gzip = CanRun(['gzip', '--version'])
 has_lrzip = CanRun(['lrzip', '--version'])
@@ -275,9 +293,24 @@ has_xz = CanRun(['xz', '--version'])
 has_zstd = CanRun(['zstd', '--version'])
 has_tar = CanRun(['tar', '--version'])
 
+has_gpg = CanRun(['gpg', '--version'])
+if has_gpg:
+    if on_mac and lib_archive_version < [3, 9, 0]:
+        # On macOS, even if the `gpg` program is present, libarchive can't use it
+        # because of https://github.com/libarchive/libarchive/issues/3539
+        has_gpg = False
+        logging.info(f'Will skip tests relying on gpg')
+
+    if on_linux and lib_archive_version < [3, 8, 2]:
+        # On Linux, even if the `gpg` program is present, libarchive < 3.8.2
+        # can't use it because of
+        # https://github.com/libarchive/libarchive/issues/3539
+        has_gpg = False
+        logging.info(f'Will skip tests relying on gpg')
+
 
 def HasLib(name):
-    if ' ' + name + '/' in sr.stdout:
+    if ' ' + name in sr.stdout:
         return True
     logging.info(f'Will skip tests relying on {name}')
     return False
@@ -290,6 +323,7 @@ has_libzstd = HasLib('libzstd')
 has_zlib = HasLib('zlib')
 has_nettle = HasLib('nettle')
 has_openssl = HasLib('openssl')
+has_rpm = HasLib('rpm')
 
 # https://github.com/google/fuse-archive/issues/59
 env = os.environ.copy()
@@ -301,8 +335,9 @@ if not is_fast and not has_lrzip:
 
 def Unmount(mount_point):
     # Linux: -l (lazy) detaches immediately even if mount is busy.
-    # macOS: -l is unsupported; -f (force) is the closest equivalent.
-    if on_mac:
+    # macOS and FreeBSD: -l is unsupported; -f (force) is the closest
+    # equivalent.
+    if on_mac or on_freebsd:
         subprocess.run(['umount', '-f', mount_point], check=True)
     else:
         subprocess.run(['umount', '-l', mount_point], check=True)
@@ -454,7 +489,7 @@ def TestArchiveWithOptions(options=[]):
         MountArchiveAndCheckTree(zip_name, want_tree, options=options)
 
     want_tree = {
-        '.': {'ino': 1, 'mode': 'drwxr-xr-x', 'nlink': 4},
+        '.': {'mode': 'drwxr-xr-x', 'nlink': 4},
         'artificial': {'mode': 'drwxr-xr-x'},
         'artificial/0.bytes': {'mode': '-rw-r--r--', 'mtime': 1580883024000000000, 'size': 0, 'md5': 'd41d8cd98f00b204e9800998ecf8427e'},
         'github-tags.json': {'mode': '-rw-r--r--', 'mtime': 1597241062000000000, 'size': 853, 'md5': 'b2d7993ed99c65296bf95824c57b4fdc'},
@@ -534,6 +569,9 @@ def TestArchiveWithOptions(options=[]):
     if has_gpg:
         zip_names += ['archive.tar.gpg', 'archive.tar.pgp', 'archive.tar.asc']
 
+    if has_rpm:
+        zip_names += ['real.rpm']
+
     for zip_name in zip_names:
         MountArchiveAndCheckTree(zip_name, want_tree, options=options)
 
@@ -547,25 +585,45 @@ def TestArchiveWithOptions(options=[]):
         'romeo.txt': {'mode': '-rw-r--r--', 'size': 942, 'md5': '80f1521c4533d017df063c623b75cde3'},
     }
 
+    zip_names = []
+
+    if has_bz2lib:
+        zip_names += ['romeo.bzip2.zip']
+
+    if has_liblzma:
+        zip_names += ['romeo.lzma.zip', 'romeo.xz.zip']
+
+    for zip_name in zip_names:
+        MountArchiveAndCheckTree(zip_name, want_tree, options=options)
+
+    # The gzip format embeds its own mtime in its header, so the mounted file
+    # should report that embedded timestamp, not the .gz file's own on-disk
+    # mtime.
+    want_tree['romeo.txt']['mtime'] = 1499322406000000000
+    zip_names = []
+
+    if has_zlib or has_gzip:
+        zip_names += ['romeo.txt.gz', 'romeo.txt.gzip']
+
+    for zip_name in zip_names:
+        MountArchiveAndCheckTree(zip_name, want_tree, options=options)
+
+    if has_zlib:
+        zip_name = 'romeo.txt.gz.uu'
+        MountArchiveAndCheckTree(zip_name, want_tree, options=[*options, '-o', 'maxfilters=2'])
+
+    # Other compression filters don't carry any timestamp at all, so the
+    # mounted file should fall back to the compressed file's own on-disk mtime.
     zip_names = ['romeo.txt.uu']
 
     if has_liblzma or has_lzip:
         zip_names += ['romeo.txt.lz', 'romeo.txt.lzip']
 
-    if has_zlib or has_gzip:
-        zip_names += ['romeo.txt.gz', 'romeo.txt.gzip']
-
     if has_bz2lib or has_bzip2:
         zip_names += ['romeo.txt.bz2', 'romeo.txt.bz', 'romeo.txt.bzip2']
 
-    if has_bz2lib:
-        zip_names += ['romeo.bzip2.zip']
-
     if has_liblz4 or has_lz4:
         zip_names += ['romeo.txt.lz4']
-
-    if has_liblzma:
-        zip_names += ['romeo.lzma.zip', 'romeo.xz.zip']
 
     if has_liblzma or has_lzma:
         zip_names += ['romeo.txt.lzma']
@@ -595,12 +653,9 @@ def TestArchiveWithOptions(options=[]):
         zip_names += ['romeo.txt.gpg', 'romeo.txt.pgp', 'romeo.txt.asc']
 
     for zip_name in zip_names:
+        want_tree['romeo.txt']['mtime'] = os.stat(os.path.join(script_dir, 'data', zip_name)).st_mtime_ns
         MountArchiveAndCheckTree(zip_name, want_tree, options=options)
 
-    if has_zlib:
-        MountArchiveAndCheckTree('romeo.txt.gz.uu',
-                                 want_tree,
-                                 options=[*options, '-o', 'maxfilters=2'])
 
     want_tree = {
         '.': {'ino': 1, 'mode': 'drwxr-xr-x', 'nlink': 4},
@@ -667,17 +722,14 @@ def TestArchiveWithOptions(options=[]):
 
     want_tree = {
         '.': {'ino': 1, 'mode': 'drwxr-xr-x', 'nlink': 2},
-        # Mysterious extra file
-        # https://github.com/libarchive/libarchive/issues/2524
-        'data': {'mode': '-rw-r--r--', 'size': 0, 'md5': 'd41d8cd98f00b204e9800998ecf8427e'},
-        '0.bytes': {'mode': '-rw-r--r--', 'size': 0, 'md5': 'd41d8cd98f00b204e9800998ecf8427e'},
-        'github-tags.json': {'mode': '-rw-r--r--', 'size': 853, 'md5': 'b2d7993ed99c65296bf95824c57b4fdc'},
-        'hello.sh': {'mode': '-rw-r--r--', 'size': 693, 'md5': '72d710dd3766a67401a79f8d3df3114c'},
-        'αβ.txt': {'mode': '-rw-r--r--', 'size': 104, 'md5': '3369a4163a436de59e23daedd371b5f0'},
-        '😻.txt': {'mode': '-rw-r--r--', 'size': 151, 'md5': '5d18e0e461374191825c6e7898af5634'},
-        'pjw-thumbnail.png': {'mode': '-rw-r--r--', 'size': 208, 'md5': 'f7017e60a0af6d7ad3128c149624aac5'},
-        'romeo.txt': {'mode': '-rw-r--r--', 'size': 942, 'md5': '80f1521c4533d017df063c623b75cde3'},
-        'romeo.txt.gz': {'mode': '-rw-r--r--', 'size': 558, 'md5': 'f261bc929b34f58d8138413ed6252f2d'},
+        '0.bytes': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 0, 'md5': 'd41d8cd98f00b204e9800998ecf8427e'},
+        'github-tags.json': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 853, 'md5': 'b2d7993ed99c65296bf95824c57b4fdc'},
+        'hello.sh': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 693, 'md5': '72d710dd3766a67401a79f8d3df3114c'},
+        'αβ.txt': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 104, 'md5': '3369a4163a436de59e23daedd371b5f0'},
+        '😻.txt': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 151, 'md5': '5d18e0e461374191825c6e7898af5634'},
+        'pjw-thumbnail.png': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 208, 'md5': 'f7017e60a0af6d7ad3128c149624aac5'},
+        'romeo.txt': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 942, 'md5': '80f1521c4533d017df063c623b75cde3'},
+        'romeo.txt.gz': {'mode': '-rw-r--r--', 'mtime': 0, 'size': 558, 'md5': 'f261bc929b34f58d8138413ed6252f2d'},
     }
 
     zip_names = ['archive.a', 'archive.ar']
@@ -686,7 +738,7 @@ def TestArchiveWithOptions(options=[]):
         zip_names += ['archive.a.gz', 'archive.ar.gz']
 
     for zip_name in zip_names:
-        MountArchiveAndCheckTree(zip_name, want_tree, options=options)
+        MountArchiveAndCheckTree(zip_name, want_tree, strict=False, options=options)
 
     want_tree = {
         # Don't check mtime for this archive.
@@ -1320,9 +1372,7 @@ def TestHardlinks(options=[]):
 # Tests sparse file seeking logic.
 def TestSeek(options=[]):
     if not has_gzip and not has_zlib: return
-    if not has_holes:
-        logging.info('Skipping TestSeek')
-        return
+    if not has_holes: return
 
     zip_name = 'seek.tar.gz'
     s = f'Test {zip_name!r}'
@@ -2595,21 +2645,25 @@ def TestAutoMountPoint():
                 LogError(f"Automatic mount point '--help' was not removed")
 
         # 4. Mount point creation failure (e.g. read-only directory)
-        readonly_dir = os.path.join(tmp_dir, 'readonly')
-        os.mkdir(readonly_dir)
-        os.chmod(readonly_dir, 0o555)  # Read and execute, but no write
-        try:
-            command_fail = [mount_program, zip_path]
-            res = subprocess.run(command_fail,
-                                 capture_output=True,
-                                 cwd=readonly_dir)
-            if res.returncode != 10:
-                LogError(
-                    f"Expected exit code 10 for mount point creation failure, got {res.returncode}"
-                )
-        finally:
-            os.chmod(readonly_dir, 0o777)
-            os.rmdir(readonly_dir)
+        # Skipped when running as root: root bypasses the directory
+        # permission bits, so fuse-archive would succeed instead of
+        # failing as expected.
+        if os.getuid() != 0:
+            readonly_dir = os.path.join(tmp_dir, 'readonly')
+            os.mkdir(readonly_dir)
+            os.chmod(readonly_dir, 0o555)  # Read and execute, but no write
+            try:
+                command_fail = [mount_program, zip_path]
+                res = subprocess.run(command_fail,
+                                     capture_output=True,
+                                     cwd=readonly_dir)
+                if res.returncode != 10:
+                    LogError(
+                        f"Expected exit code 10 for mount point creation failure, got {res.returncode}"
+                    )
+            finally:
+                os.chmod(readonly_dir, 0o777)
+                os.rmdir(readonly_dir)
 
         # 5. Mounting in non-existent parent directory
         nonexistent_parent = os.path.join(tmp_dir, 'no/such/dir/mnt')

@@ -122,7 +122,9 @@ off_t Node::SparseSeek(off_t const offset, int const whence) const {
 Stat Node::GetStat() const {
   Stat z = {};
   assert((nlink == 0) == (hardlink_target != nullptr));
-  z.st_nlink = GetTarget()->nlink;
+  const Node* const t = GetTarget();
+  assert(t);
+  z.st_nlink = t->nlink;
   assert(z.st_nlink > 0);
   z.st_ino = ino;
   z.st_mode = mode;
@@ -133,14 +135,22 @@ Stat Node::GetStat() const {
   z.st_blocks = GetBlockCount();
   z.st_rdev = dev;
 
-#if __APPLE__
+  const timespec atime = t->atime.load(std::memory_order_relaxed);
+
+#ifdef __APPLE__
   z.st_atimespec = atime;
   z.st_mtimespec = mtime;
   z.st_ctimespec = ctime;
+  z.st_birthtimespec = btime;
 #else
   z.st_atim = atime;
   z.st_mtim = mtime;
   z.st_ctim = ctime;
+  // Linux's struct stat has no birthtime field at all (unlike Apple's and
+  // FreeBSD's): that's what the statx FUSE operation is for.
+#ifdef __FreeBSD__
+  z.st_birthtim = btime;
+#endif
 #endif
 
   return z;

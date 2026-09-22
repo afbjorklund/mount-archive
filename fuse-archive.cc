@@ -73,7 +73,7 @@
 #include "lib/util.h"
 
 #define PROGRAM_NAME "fuse-archive"
-#define PROGRAM_VERSION "1.24"
+#define PROGRAM_VERSION "1.25"
 
 // ---- Compile-time Configuration
 
@@ -125,6 +125,7 @@ fuse_opt const g_fuse_opts[] = {
     {"noholes", offsetof(Context, options.holes), 0},
     {"nohardlinks", offsetof(Context, options.hardlinks), 0},
     {"noxattrs", offsetof(Context, options.xattrs), 0},
+    {"noatime", offsetof(Context, options.atime), 0},
     {"nobidding", offsetof(Context, options.bidding), 0},
     {"noexternal", offsetof(Context, can_use_external_filters), 0},
     {"enforce_permissions", offsetof(Context, options.enforce_permissions), 1},
@@ -235,8 +236,12 @@ general options:
     -o maxfilters=N        max number of filters (default 1)
     -o precache            pre-emptive caching of uncompressed data (default)
     -o lazycache           incremental caching of uncompressed data
-    -o nocache             no caching of uncompressed data
-    -o memcache            caching in memory
+    -o nocache             no caching of uncompressed data)"
+#if defined(__linux__)
+         R"(
+    -o memcache            caching in memory)"
+#endif
+         R"(
     -o nomerge             don't merge multiple archives in the same directory
     -o notrim              don't trim the base of the tree
     -o nodirs              no directories
@@ -245,6 +250,7 @@ general options:
     -o noholes             no sparse files
     -o nohardlinks         no hard links
     -o noxattrs            no extended attributes
+    -o noatime             don't update access times
     -o nobidding           rely on file extension to detect archive format
     -o noexternal          do not use external programs for decompression
     -o enforce_permissions enforce standard UNIX permissions
@@ -279,9 +285,16 @@ void SetSafePath() {
 
       // Recognized safe system locations.
       static const std::unordered_set<std::string_view> safe_dirs = {
-          "/usr/bin",          "/bin",           "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          "/usr/local/bin",
 #ifdef __APPLE__
-          "/opt/homebrew/bin", "/opt/local/bin",
+          "/opt/homebrew/bin",
+          "/opt/local/bin",
+#endif
+#ifdef __FreeBSD__
+          // libfuse needs mount_fusefs in the PATH.
+          "/sbin",
 #endif
       };
 
@@ -398,7 +411,11 @@ int main(int const argc, char** const argv) try {
 
   if (ctx.version) {
     std::cout << PROGRAM_NAME " " PROGRAM_VERSION "\n";
-    std::cout << archive_version_details() << "\n";
+    std::cout << archive_version_details();
+#ifdef ARCHIVE_FORMAT_RPM
+    std::cout << " rpm";
+#endif
+    std::cout << "\n";
     std::cout.flush();
 
     // Forward --version to libfuse so that it can print its own version.

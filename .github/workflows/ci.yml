@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux:
+    # Native Linux VM: /dev/fuse is available, so the full functional test
+    # suite (mounting real archives) runs, not just a build check.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfuse3-dev fuse3 libarchive-dev libboost-dev pkg-config \
+            libgtest-dev \
+            python3 brotli coreutils lrzip lzop ncompress lz4 lzip gpg
+      - name: Build and test
+        run: make check-fast
+
+  macos:
+    # Native macOS VM. This only verifies that fuse-archive compiles.
+    # macFUSE needs a kernel extension that requires a reboot and manual
+    # user consent (SIP), which isn't possible on an ephemeral CI runner,
+    # so no archive can actually be mounted here.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          brew install boost libarchive pkg-config
+          # Only needed to get fuse.h and the fuse3.pc pkg-config file for
+          # compiling; the bundled kernel extension is never loaded.
+          brew install --cask macfuse
+      - name: Build
+        run: make all
+
+  freebsd:
+    # GitHub has no native FreeBSD runner. vmactions/freebsd-vm boots a real
+    # FreeBSD guest (nested virtualization is only enabled on macOS hosts on
+    # GitHub-hosted runners). Unlike macOS, FreeBSD's fusefs kernel module
+    # loads without any interactive consent step, so the full functional
+    # test suite runs here too.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          # The default rsync-based sync hits a protocol mismatch between
+          # macOS's old bundled rsync (the action's host) and FreeBSD's
+          # newer one ("unexpected end of file"). sshfs (tried first) was
+          # itself unreliable here (mount kept dropping: "remote host has
+          # disconnected"), so try nfs instead - the action's other live
+          # mount option.
+          sync: nfs
+          prepare: |
+            pkg install -y pkgconf boost-libs libarchive fusefs-libs3 \
+              googletest python3 gmake gnupg
+          run: |
+            kldload fusefs || true
+            # The Makefile uses GNU Make syntax (ifeq, $(shell ...)), which
+            # FreeBSD's base bmake can't parse.
+            gmake check-fast

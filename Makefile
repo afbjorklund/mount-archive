@@ -1,5 +1,9 @@
 PROJECT = fuse-archive
 PKG_CONFIG ?= pkg-config
+OS := $(shell uname -s)
+
+# C++ standard version (override with CXXSTD=20 for older compilers)
+CXXSTD ?= 23
 
 # C++ standard version (override with CXXSTD=20 for older compilers)
 CXXSTD ?= 23
@@ -20,7 +24,7 @@ UNIT_TEST_DEPS = gtest gtest_main
 # On macOS, libarchive is keg-only (not symlinked into the default search
 # path). Wire the Homebrew path into PKG_CONFIG_PATH so every pkg-config call
 # in this Makefile resolves the correct version regardless of shell environment.
-ifeq ($(shell uname -s),Darwin)
+ifeq ($(OS),Darwin)
   COMMON_CXXFLAGS += -std=gnu++$(CXXSTD)
   PREFIX ?= /usr/local
   BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
@@ -36,9 +40,23 @@ else
   COMMON_CXXFLAGS += -std=c++$(CXXSTD)
 endif
 
+# 16-byte atomics (std::atomic<timespec>, used for Node::atime) are
+# implemented via libatomic's runtime fallback on platforms without a
+# lock-free 16-byte compare-and-swap. Only glibc/Linux splits this out into
+# a separate library; FreeBSD's compiler-rt provides the fallback directly,
+# and this isn't linked on Darwin either.
+ifeq ($(OS),Linux)
+  PKG_LDFLAGS += -latomic
+endif
 
-PKG_CXXFLAGS := $(shell $(PKG_CONFIG) --cflags $(DEPS) 2>/dev/null)
-PKG_LDFLAGS := $(shell $(PKG_CONFIG) --libs $(DEPS) 2>/dev/null)
+# On FreeBSD, Boost headers installed from the ports are in
+# /usr/local/include and the base Clang does not look there by default.
+ifeq ($(OS),FreeBSD)
+  COMMON_CXXFLAGS += -I/usr/local/include
+endif
+
+PKG_CXXFLAGS += $(shell $(PKG_CONFIG) --cflags $(DEPS) 2>/dev/null)
+PKG_LDFLAGS += $(shell $(PKG_CONFIG) --libs $(DEPS) 2>/dev/null)
 
 HAS_GTEST := $(shell $(PKG_CONFIG) --exists $(UNIT_TEST_DEPS) 2>/dev/null && echo yes || echo no)
 
@@ -173,7 +191,7 @@ release:
 
 $(MAN): README.md
 	pandoc $< -s -t man | \
-	sed -e 's/^\.IP \\\[bu\]/.PD 0\n.IP \\\[bu\]/g' \
+	sed -e 's/^\.IP \\(bu/.PD 0\n.IP \\(bu/g' \
 	    -e 's/^\.SH/.PD\n.SH/g' \
 	    -e 's/^\.SS/.PD\n.SS/g' \
 	    -e 's/^\.PP/.PD\n.PP/g' \

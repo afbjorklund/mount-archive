@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <tuple>
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -184,25 +185,14 @@ FileDescriptor CreateCacheFile(bool memcache) {
       LOG(DEBUG) << "Created memory-backed cache file (memfd_create)";
       return fd;
     }
-#elif defined(SHM_ANON)
-    fd = FileDescriptor(shm_open(SHM_ANON, O_RDWR | O_CLOEXEC, 0600));
-    if (fd.IsValid()) {
-      LOG(DEBUG) << "Created memory-backed cache file (shm_open SHM_ANON)";
-      return fd;
-    }
-#elif !defined(__APPLE__)
-    // macOS shm_open objects require ftruncate before any write and cannot
-    // auto-extend like Linux memfd or a regular file.
-    std::string const shm_name = StrCat("/fuse-archive-", getpid());
-    fd = FileDescriptor(
-        shm_open(shm_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600));
-    if (fd.IsValid()) {
-      shm_unlink(shm_name.c_str());
-      LOG(DEBUG) << "Created memory-backed cache file (shm_open " << shm_name
-                 << ")";
-      return fd;
-    }
 #endif
+    // Other platforms' shm_open (anonymous or named, e.g. macOS or FreeBSD)
+    // requires ftruncate to a known size before any write and cannot
+    // auto-extend like Linux memfd or a regular file, so it's unsuitable
+    // for this cache file's simple sequential-write growth pattern: the
+    // final size isn't known upfront, and retrofitting ftruncate-before-
+    // each-write would mean touching every write call site, not just this
+    // function.
 
     PLOG(ERROR) << "Cannot create memory-backed cache file";
     throw ExitCode::CANNOT_CREATE_CACHE;
