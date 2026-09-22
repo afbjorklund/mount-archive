@@ -68,6 +68,27 @@ def GetFuseMajorVersion():
 fuse_major_version = GetFuseMajorVersion()
 logging.info(f'FUSE major version: {fuse_major_version}')
 
+
+def GetLibArchiveVersion():
+    for line in sr.stdout.split('\n'):
+        if line.startswith('libarchive '):
+            version_str = line.split()[1]
+            version = []
+            for part in version_str.split('.'):
+                # Strip any non-digit suffix (e.g. the "dev" in "3.9.0dev").
+                digits = ''
+                for c in part:
+                    if not c.isdigit():
+                        break
+                    digits += c
+                version.append(int(digits) if digits else 0)
+            return version
+    return [0, 0, 0]
+
+
+lib_archive_version = GetLibArchiveVersion()
+logging.info(f'libarchive version: {lib_archive_version}')
+
 on_mac = sys.platform.startswith('darwin')
 on_linux = sys.platform.startswith('linux')
 on_freebsd = sys.platform.startswith('freebsd')
@@ -262,10 +283,6 @@ has_bzip2 = CanRun(['bzip2', '--help'])
 # or -h. On Linux, ncompress may or may not be installed and does support -V.
 has_compress = on_freebsd or on_mac or CanRun(['compress', '-V'])
 
-# On macOS, even if the `gpg` program is present, libarchive can't  reach
-# gpg-agent's FD / socket.
-has_gpg = not on_mac and CanRun(['gpg', '--version'])
-
 has_gzip = CanRun(['gzip', '--version'])
 has_lrzip = CanRun(['lrzip', '--version'])
 has_lz4 = CanRun(['lz4', '--version'])
@@ -275,6 +292,21 @@ has_lzop = CanRun(['lzop', '--version'])
 has_xz = CanRun(['xz', '--version'])
 has_zstd = CanRun(['zstd', '--version'])
 has_tar = CanRun(['tar', '--version'])
+
+has_gpg = CanRun(['gpg', '--version'])
+if has_gpg:
+    if on_mac and lib_archive_version < [3, 9, 0]:
+        # On macOS, even if the `gpg` program is present, libarchive can't use it
+        # because of https://github.com/libarchive/libarchive/issues/3539
+        has_gpg = False
+        logging.info(f'Will skip tests relying on gpg')
+
+    if on_linux and lib_archive_version < [3, 8, 2]:
+        # On Linux, even if the `gpg` program is present, libarchive < 3.8.2
+        # can't use it because of
+        # https://github.com/libarchive/libarchive/issues/3539
+        has_gpg = False
+        logging.info(f'Will skip tests relying on gpg')
 
 
 def HasLib(name):

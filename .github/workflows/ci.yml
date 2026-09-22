@@ -19,20 +19,7 @@ jobs:
           sudo apt-get install -y \
             libfuse3-dev fuse3 libarchive-dev libboost-dev pkg-config \
             libgtest-dev \
-            python3 brotli coreutils lrzip lzop ncompress lz4 lzip
-      - name: Disable gpg for testing
-        # GitHub's ubuntu-latest libarchive is built against
-        # posix_spawnp(..., envp=NULL), which runs every external filter
-        # program (gpg included) with a completely empty environment.
-        # test.py relies on GNUPGHOME to isolate its test key from the
-        # real keyring, which can't reach the child process on this
-        # libarchive build, so the GPG fixture tests would always fail
-        # here regardless of anything we do in this workflow. gpg comes
-        # preinstalled on this runner image, so removing it (rather than
-        # simply not installing it) makes test.py's own has_gpg
-        # detection skip those tests gracefully, same as it already does
-        # on macOS. This is a libarchive bug, not ours.
-        run: sudo rm -f "$(command -v gpg)"
+            python3 brotli coreutils lrzip lzop ncompress lz4 lzip gpg
       - name: Build and test
         run: make check-fast
 
@@ -75,7 +62,7 @@ jobs:
           sync: nfs
           prepare: |
             pkg install -y pkgconf boost-libs libarchive fusefs-libs3 \
-              googletest python3 gmake
+              googletest python3 gmake gnupg
           run: |
             kldload fusefs || true
             # The Makefile uses GNU Make syntax (ifeq, $(shell ...)), which
